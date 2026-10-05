@@ -1,8 +1,8 @@
 import AppKit
 import Foundation
-import JouleCore
+import WatteverCore
 
-private let jouleDelegate = AppDelegate()
+private let appDelegate = AppDelegate()
 
 if CommandLine.arguments.contains("--once") {
   do {
@@ -16,7 +16,7 @@ if CommandLine.arguments.contains("--once") {
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
-app.delegate = jouleDelegate
+app.delegate = appDelegate
 app.run()
 
 private func runOnce() throws {

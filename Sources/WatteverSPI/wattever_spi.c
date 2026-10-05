@@ -1,4 +1,4 @@
-#include "joule_spi.h"
+#include "wattever_spi.h"
 
 extern CFDictionaryRef IOReportCopyChannelsInGroup(CFStringRef group, CFStringRef subgroup, uint64_t a,
                                                     uint64_t b, uint64_t c);
@@ -19,7 +19,7 @@ static void copy_string(CFStringRef string, char *buffer, CFIndex capacity) {
   }
 }
 
-CFDictionaryRef joule_copy_energy_channels(void) {
+CFDictionaryRef wattever_copy_energy_channels(void) {
   CFDictionaryRef channels = IOReportCopyChannelsInGroup(CFSTR("Energy Model"), NULL, 0, 0, 0);
   if (channels == NULL) {
     return NULL;
@@ -29,7 +29,7 @@ CFDictionaryRef joule_copy_energy_channels(void) {
   return mutable;
 }
 
-IOReportSubscriptionRef joule_subscribe(CFDictionaryRef channels) {
+IOReportSubscriptionRef wattever_subscribe(CFDictionaryRef channels) {
   CFMutableDictionaryRef subscribed = NULL;
   IOReportSubscriptionRef subscription =
       IOReportCreateSubscription(NULL, (CFMutableDictionaryRef)channels, &subscribed, 0, NULL);
@@ -39,21 +39,21 @@ IOReportSubscriptionRef joule_subscribe(CFDictionaryRef channels) {
   return subscription;
 }
 
-void joule_release_subscription(IOReportSubscriptionRef subscription) {
+void wattever_release_subscription(IOReportSubscriptionRef subscription) {
   if (subscription != NULL) {
     CFRelease(subscription);
   }
 }
 
-CFDictionaryRef joule_copy_samples(IOReportSubscriptionRef subscription, CFDictionaryRef channels) {
+CFDictionaryRef wattever_copy_samples(IOReportSubscriptionRef subscription, CFDictionaryRef channels) {
   return IOReportCreateSamples(subscription, (CFMutableDictionaryRef)channels, NULL);
 }
 
-CFDictionaryRef joule_copy_delta(CFDictionaryRef previous, CFDictionaryRef current) {
+CFDictionaryRef wattever_copy_delta(CFDictionaryRef previous, CFDictionaryRef current) {
   return IOReportCreateSamplesDelta(previous, current, NULL);
 }
 
-void joule_visit_channels(CFDictionaryRef sample, JouleVisit visit, void *context) {
+void wattever_visit_channels(CFDictionaryRef sample, WatteverVisit visit, void *context) {
   if (sample == NULL || visit == NULL) {
     return;
   }

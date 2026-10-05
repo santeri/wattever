@@ -62,7 +62,7 @@ public struct EnergyHistory: Equatable, Sendable {
 
 enum EnergyComponent: Equatable {
   case cpu
-  // "GPU Energy" is the nanojoule counter. "GPU" is the same quantity in millijoules.
+  // "GPU Energy" is the nJ counter. "GPU" is the same quantity in mJ.
   case gpuPrecise
   case gpuCoarse
   case gpuSRAM
@@ -102,7 +102,7 @@ public enum EnergyMath {
   /// Intervals shorter than this are quantization noise, not a power reading.
   public static let minimumInterval = 0.05
 
-  public static func joules(raw: Int64, unit: String) -> Double? {
+  public static func energy(raw: Int64, unit: String) -> Double? {
     let unit = unit.trimmingCharacters(in: .whitespacesAndNewlines)
     let magnitude = Double(max(raw, 0))
     switch unit {
@@ -117,11 +117,11 @@ public enum EnergyMath {
     }
   }
 
-  /// Power over `seconds`, in joules per second.
+  /// Power over `seconds`, in watts.
   ///
   /// Energy Model publishes an aggregate per block and also the pieces that add up to it
   /// (`EACC_CPU0`, cluster totals, DTL rails). Only the aggregates are summed. When both
-  /// `GPU` and `GPU Energy` are present they are one counter, and the nanojoule one wins.
+  /// `GPU` and `GPU Energy` are present they are one counter, and the nJ one wins.
   public static func reading(samples: [ChannelSample], seconds: Double) -> EnergyReading? {
     guard seconds.isFinite, seconds >= minimumInterval else { return nil }
     let preciseGPU = samples.contains { energyComponent(forChannel: $0.name) == .gpuPrecise }
@@ -135,8 +135,8 @@ public enum EnergyMath {
     for sample in samples {
       guard let component = energyComponent(forChannel: sample.name) else { continue }
       if component == .gpuCoarse, preciseGPU { continue }
-      guard let joules = joules(raw: sample.raw, unit: sample.unit) else { continue }
-      let watts = joules / seconds
+      guard let energy = energy(raw: sample.raw, unit: sample.unit) else { continue }
+      let watts = energy / seconds
       saw = true
       switch component {
       case .cpu:

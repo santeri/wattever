@@ -9,30 +9,30 @@ let package = Package(
   ],
   targets: [
     .target(
-      name: "JouleSPI",
-      path: "Sources/JouleSPI",
+      name: "WatteverSPI",
+      path: "Sources/WatteverSPI",
       publicHeadersPath: "include",
       linkerSettings: [
         .linkedLibrary("IOReport")
       ]
     ),
     .target(
-      name: "JouleCore",
-      dependencies: ["JouleSPI"],
-      path: "Sources/JouleCore",
+      name: "WatteverCore",
+      dependencies: ["WatteverSPI"],
+      path: "Sources/WatteverCore",
       linkerSettings: [
         .linkedFramework("IOKit")
       ]
     ),
     .executableTarget(
       name: "wattever",
-      dependencies: ["JouleCore"],
+      dependencies: ["WatteverCore"],
       path: "Sources/wattever"
     ),
     .testTarget(
-      name: "JouleCoreTests",
-      dependencies: ["JouleCore"],
-      path: "Tests/JouleCoreTests"
+      name: "WatteverCoreTests",
+      dependencies: ["WatteverCore"],
+      path: "Tests/WatteverCoreTests"
     ),
   ]
 )

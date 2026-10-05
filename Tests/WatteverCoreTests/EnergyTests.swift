@@ -1,15 +1,15 @@
 import XCTest
 
-@testable import JouleCore
+@testable import WatteverCore
 
 final class EnergyTests: XCTestCase {
   func testUnitConversion() {
-    XCTAssertEqual(EnergyMath.joules(raw: 465, unit: "mJ")!, 0.465, accuracy: 1e-12)
-    XCTAssertEqual(EnergyMath.joules(raw: 1_000, unit: "uJ")!, 0.001, accuracy: 1e-15)
-    XCTAssertEqual(EnergyMath.joules(raw: 356_994_777, unit: "nJ")!, 0.356994777, accuracy: 1e-12)
-    XCTAssertEqual(EnergyMath.joules(raw: 1_000, unit: " uJ\n")!, 0.001, accuracy: 1e-15)
-    XCTAssertEqual(EnergyMath.joules(raw: -5, unit: "mJ")!, 0, accuracy: 1e-12)
-    XCTAssertNil(EnergyMath.joules(raw: 1, unit: "W"))
+    XCTAssertEqual(EnergyMath.energy(raw: 465, unit: "mJ")!, 0.465, accuracy: 1e-12)
+    XCTAssertEqual(EnergyMath.energy(raw: 1_000, unit: "uJ")!, 0.001, accuracy: 1e-15)
+    XCTAssertEqual(EnergyMath.energy(raw: 356_994_777, unit: "nJ")!, 0.356994777, accuracy: 1e-12)
+    XCTAssertEqual(EnergyMath.energy(raw: 1_000, unit: " uJ\n")!, 0.001, accuracy: 1e-15)
+    XCTAssertEqual(EnergyMath.energy(raw: -5, unit: "mJ")!, 0, accuracy: 1e-12)
+    XCTAssertNil(EnergyMath.energy(raw: 1, unit: "W"))
   }
 
   func testRejectsShortIntervalsAndUnknownChannels() {
@@ -37,7 +37,7 @@ final class EnergyTests: XCTestCase {
     XCTAssertEqual(reading?.total ?? -1, 1, accuracy: 1e-12)
   }
 
-  func testSumsDiesAndPrefersNanojouleGPU() {
+  func testSumsDiesAndPrefersFineGPU() {
     let reading = EnergyMath.reading(
       samples: [
         ChannelSample(name: "DIE_0_CPU Energy", unit: "mJ", raw: 100),
@@ -57,7 +57,7 @@ final class EnergyTests: XCTestCase {
     XCTAssertEqual(reading?.dram ?? -1, 0.15, accuracy: 1e-12)
   }
 
-  func testCoarseGPUWhenTheNanojouleCounterIsAbsent() {
+  func testCoarseGPUWhenTheFineCounterIsAbsent() {
     let reading = EnergyMath.reading(
       samples: [ChannelSample(name: "GPU", unit: "mJ", raw: 2_000)], seconds: 1)
     XCTAssertEqual(reading?.gpu ?? -1, 2, accuracy: 1e-12)
