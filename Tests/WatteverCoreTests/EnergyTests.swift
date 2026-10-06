@@ -133,6 +133,93 @@ final class EnergyTests: XCTestCase {
     XCTAssertEqual(formatWatts(12.46, fractionDigits: 1), "12.5 W")
   }
 
+  func testHistoryKeepsTenMinutes() {
+    var history = EnergyHistory()
+    let now = Date(timeIntervalSinceReferenceDate: 1_000_000)
+    history.record(1, at: now.addingTimeInterval(-601))
+    history.record(9, at: now.addingTimeInterval(-500))
+    history.record(4, at: now)
+    XCTAssertEqual(history.samples.map(\.watts), [9, 4])
+    XCTAssertEqual(history.minimum, 4, accuracy: 1e-12)
+    XCTAssertEqual(history.maximum, 9, accuracy: 1e-12)
+    XCTAssertEqual(historyCaption(span: 0), "0 s")
+    XCTAssertEqual(historyCaption(span: 12.4), "12 s")
+    XCTAssertEqual(historyCaption(span: 90), "2 min")
+    XCTAssertEqual(historyCaption(span: EnergyHistory.window), "10 min")
+  }
+
+  func testBatteryClock() {
+    let full: [String: Any] = [
+      "FullyCharged": true,
+      "IsCharging": false,
+      "ExternalConnected": true,
+      "TimeRemaining": 65535,
+      "AvgTimeToFull": 65535,
+      "AvgTimeToEmpty": 65535,
+    ]
+    XCTAssertEqual(PowerInput.batteryClock(in: full), .full)
+    XCTAssertEqual(PowerInput.now(in: full).battery, .full)
+
+    let publishedFull: [String: Any] = [
+      "FullyCharged": false,
+      "IsCharging": true,
+      "ExternalConnected": true,
+      "AvgTimeToFull": 95,
+      "TimeRemaining": 65535,
+      "Amperage": 1900,
+      "AppleRawCurrentCapacity": 3801,
+      "AppleRawMaxCapacity": 7602,
+    ]
+    XCTAssertEqual(PowerInput.batteryClock(in: publishedFull), .untilFull(minutes: 95))
+
+    let computedFull: [String: Any] = [
+      "FullyCharged": false,
+      "IsCharging": true,
+      "ExternalConnected": true,
+      "AvgTimeToFull": 65535,
+      "TimeRemaining": 65535,
+      "Amperage": 1900,
+      "AppleRawCurrentCapacity": 3801,
+      "AppleRawMaxCapacity": 7602,
+      "CurrentCapacity": 50,
+      "MaxCapacity": 100,
+    ]
+    XCTAssertEqual(PowerInput.batteryClock(in: computedFull), .untilFull(minutes: 120))
+
+    let publishedEmpty: [String: Any] = [
+      "FullyCharged": false,
+      "IsCharging": false,
+      "ExternalConnected": false,
+      "AvgTimeToEmpty": 180,
+      "TimeRemaining": 65535,
+      "Amperage": -10,
+      "AppleRawCurrentCapacity": 4500,
+    ]
+    XCTAssertEqual(PowerInput.batteryClock(in: publishedEmpty), .untilEmpty(minutes: 180))
+
+    let computedEmpty: [String: Any] = [
+      "FullyCharged": false,
+      "IsCharging": false,
+      "ExternalConnected": false,
+      "AvgTimeToEmpty": 65535,
+      "TimeRemaining": 65535,
+      "Amperage": -1500,
+      "AppleRawCurrentCapacity": 4500,
+      "CurrentCapacity": 50,
+    ]
+    XCTAssertEqual(PowerInput.batteryClock(in: computedEmpty), .untilEmpty(minutes: 180))
+
+    XCTAssertNil(PowerInput.batteryClock(in: ["ExternalConnected": true]))
+  }
+
+  func testFormatsBatteryClock() {
+    XCTAssertEqual(formatBatteryClock(.full), "full")
+    XCTAssertEqual(formatBatteryClock(.untilFull(minutes: 0)), "< 1 min to full")
+    XCTAssertEqual(formatBatteryClock(.untilEmpty(minutes: 47)), "47 min to empty")
+    XCTAssertEqual(formatBatteryClock(.untilFull(minutes: 60)), "1 h to full")
+    XCTAssertEqual(formatBatteryClock(.untilEmpty(minutes: 134)), "2 h 14 min to empty")
+  }
+
   func testAdapterInputOnlyWhileOnExternalPower() {
     let telemetry: [String: Any] = [
       "SystemVoltageIn": 19508,
@@ -158,5 +245,43 @@ final class EnergyTests: XCTestCase {
       "SystemVoltageIn": 0, "SystemCurrentIn": 0, "SystemPowerIn": 0,
     ] as [String: Any]
     XCTAssertNil(PowerInput.watts(in: idle))
+  }
+
+  func testSystemLoadIsWholeMachineUse() {
+    let charging: [String: Any] = [
+      "ExternalConnected": true,
+      "PowerTelemetryData": [
+        "SystemVoltageIn": 19508,
+        "SystemCurrentIn": 1690,
+        "SystemPowerIn": 32973,
+        "BatteryPower": 11974,
+        "SystemLoad": 20999,
+      ] as [String: Any],
+    ]
+    let chargingNow = PowerInput.now(in: charging)
+    XCTAssertEqual(chargingNow.usageWatts ?? -1, 20.999, accuracy: 1e-9)
+    XCTAssertEqual(chargingNow.inputWatts ?? -1, 32.96852, accuracy: 1e-4)
+
+    let full: [String: Any] = [
+      "ExternalConnected": true,
+      "PowerTelemetryData": [
+        "SystemVoltageIn": 27729,
+        "SystemCurrentIn": 397,
+        "SystemPowerIn": 11023,
+        "BatteryPower": 0,
+        "SystemLoad": 11023,
+      ] as [String: Any],
+    ]
+    let fullNow = PowerInput.now(in: full)
+    XCTAssertEqual(fullNow.usageWatts ?? -1, 11.023, accuracy: 1e-9)
+    XCTAssertEqual(fullNow.inputWatts ?? -1, 27729.0 * 397.0 / 1_000_000, accuracy: 1e-4)
+
+    let battery: [String: Any] = [
+      "ExternalConnected": false,
+      "PowerTelemetryData": ["SystemLoad": 8400, "SystemPowerIn": 0] as [String: Any],
+    ]
+    let batteryNow = PowerInput.now(in: battery)
+    XCTAssertEqual(batteryNow.usageWatts ?? -1, 8.4, accuracy: 1e-9)
+    XCTAssertNil(batteryNow.inputWatts)
   }
 }

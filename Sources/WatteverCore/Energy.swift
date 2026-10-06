@@ -36,28 +36,50 @@ public struct EnergyReading: Equatable, Sendable {
   public var total: Double { cpu + gpu + ane + dram + display + other }
 }
 
+public struct HistorySample: Equatable, Sendable {
+  public var time: Date
+  public var watts: Double
+
+  public init(time: Date, watts: Double) {
+    self.time = time
+    self.watts = watts
+  }
+}
+
 public struct EnergyHistory: Equatable, Sendable {
-  public private(set) var count = 0
-  public private(set) var minimum = 0.0
-  public private(set) var maximum = 0.0
-  public private(set) var sum = 0.0
+  /// Samples older than this are dropped. The menu draws this window.
+  public static let window: TimeInterval = 10 * 60
+  public private(set) var samples: [HistorySample] = []
 
   public init() {}
 
-  public var average: Double { count == 0 ? 0 : sum / Double(count) }
+  public var count: Int { samples.count }
 
-  public mutating func record(_ watts: Double) {
-    guard watts.isFinite else { return }
-    if count == 0 {
-      minimum = watts
-      maximum = watts
-    } else {
-      minimum = min(minimum, watts)
-      maximum = max(maximum, watts)
-    }
-    sum += watts
-    count += 1
+  public var minimum: Double { samples.map(\.watts).min() ?? 0 }
+
+  public var maximum: Double { samples.map(\.watts).max() ?? 0 }
+
+  public var average: Double {
+    guard !samples.isEmpty else { return 0 }
+    return samples.reduce(0) { $0 + $1.watts } / Double(samples.count)
   }
+
+  public mutating func record(_ watts: Double, at time: Date = Date()) {
+    guard watts.isFinite else { return }
+    samples.append(HistorySample(time: time, watts: watts))
+    let cutoff = time.addingTimeInterval(-Self.window)
+    if samples.contains(where: { $0.time < cutoff }) {
+      samples.removeAll { $0.time < cutoff }
+    }
+  }
+}
+
+/// Label for the history axis. Short traces name their own span, then it stays at 10 minutes.
+public func historyCaption(span: TimeInterval) -> String {
+  let span = min(max(span, 0), EnergyHistory.window)
+  if span >= EnergyHistory.window - 1 { return "10 min" }
+  if span < 60 { return "\(max(Int(span.rounded()), 0)) s" }
+  return "\(max(Int((span / 60).rounded()), 1)) min"
 }
 
 enum EnergyComponent: Equatable {
