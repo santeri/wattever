@@ -179,6 +179,15 @@ private func dictionary(_ value: Any?) -> [String: Any]? {
   return converted
 }
 
+public enum HelperInstall {
+  /// Root-owned, setuid, and not writable by the group or by everyone else.
+  public static func isSetuidRoot(owner: UInt32, permissions: UInt16) -> Bool {
+    let setuid = permissions & 0o4000 != 0
+    let writableByOthers = permissions & 0o022 != 0
+    return owner == 0 && setuid && !writableByOthers
+  }
+}
+
 private func doubleValue(_ value: Any?) -> Double? {
   switch value {
   case let number as Double:

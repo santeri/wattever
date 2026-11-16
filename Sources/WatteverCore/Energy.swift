@@ -34,6 +34,99 @@ public struct EnergyReading: Equatable, Sendable {
   }
 
   public var total: Double { cpu + gpu + ane + dram + display + other }
+
+  /// A component whose energy counter did not move is replaced by a live estimate.
+  /// macOS 27 leaves the Energy Model millijoule counters frozen for an unprivileged
+  /// reader, so a zero there is a stalled counter rather than an idle block.
+  /// A counter that did move is kept.
+  func fillingFrozenComponents(cpu: Double?, gpu: Double?, dram: Double?) -> EnergyReading {
+    var copy = self
+    if copy.cpu == 0, let cpu, cpu > 0 { copy.cpu = cpu }
+    if copy.gpu == 0, let gpu, gpu > 0 { copy.gpu = gpu }
+    if copy.dram == 0, let dram, dram > 0 { copy.dram = dram }
+    return copy
+  }
+}
+
+struct PowerBin: Equatable, Sendable {
+  var label: String
+  var residency: UInt64
+}
+
+struct PMPChannel: Equatable, Sendable {
+  var subgroup: String
+  var name: String
+  var bins: [PowerBin]
+}
+
+struct ClusterWatts: Equatable, Sendable {
+  var cpu: Double?
+  var gpu: Double?
+}
+
+/// Residency-weighted watts. Bin labels are the watt values (`2W`, `0.250W`).
+/// The lowest bin is idle, and an idle cluster sits there the whole interval,
+/// so that bin counts as zero.
+func histogramWatts(_ bins: [PowerBin]) -> Double? {
+  struct Parsed {
+    var watts: Double
+    var residency: UInt64
+  }
+  let parsed: [Parsed] = bins.compactMap { bin in
+    guard let watts = binWatts(bin.label) else { return nil }
+    return Parsed(watts: watts, residency: bin.residency)
+  }
+  guard let lowest = parsed.map(\.watts).min() else { return nil }
+  let total = parsed.reduce(UInt64(0)) { $0 + $1.residency }
+  guard total > 0 else { return nil }
+  let weighted = parsed.reduce(0.0) { sum, bin in
+    sum + (bin.watts == lowest ? 0 : bin.watts) * Double(bin.residency)
+  }
+  return weighted / Double(total)
+}
+
+func clusterWatts(_ channels: [PMPChannel]) -> ClusterWatts {
+  var cpu = 0.0
+  var gpu = 0.0
+  var sawCPU = false
+  var sawGPU = false
+  for channel in channels {
+    guard let role = pmpRole(subgroup: channel.subgroup, name: channel.name),
+      let watts = histogramWatts(channel.bins)
+    else { continue }
+    switch role {
+    case .cpu:
+      cpu += watts
+      sawCPU = true
+    case .gpu:
+      gpu += watts
+      sawGPU = true
+    }
+  }
+  return ClusterWatts(cpu: sawCPU ? cpu : nil, gpu: sawGPU ? gpu : nil)
+}
+
+private enum PMPRole {
+  case cpu
+  case gpu
+}
+
+private func pmpRole(subgroup: String, name: String) -> PMPRole? {
+  guard subgroup == "Energy" else { return nil }
+  let name = stripDiePrefix(name.trimmingCharacters(in: .whitespacesAndNewlines))
+  switch name {
+  case "AGX", "AGX SRAM":
+    return .gpu
+  default:
+    if name.wholeMatch(of: /(EACC|PACC|MACC)\d*( SRAM)?/) != nil { return .cpu }
+    return nil
+  }
+}
+
+private func binWatts(_ label: String) -> Double? {
+  let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+  guard let match = trimmed.wholeMatch(of: /([0-9]+(?:\.[0-9]+)?)W/) else { return nil }
+  return Double(match.1)
 }
 
 public struct HistorySample: Equatable, Sendable {

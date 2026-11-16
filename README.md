@@ -26,4 +26,16 @@ Print one sample and exit:
 make once
 ```
 
-Requires macOS 14 or later. No sudo.
+Requires macOS 14 or later.
+
+## Chip counters
+
+The menu-bar total comes from the battery. The rows under it come from the Energy Model. On macOS 27 those counters stay frozen unless Apple's `powermetrics` is sampling. Install a helper once:
+
+```
+make enable
+```
+
+That asks for sudo and installs a setuid root program at `/usr/local/libexec/wattever-powermetrics`. wattever starts it on the next tick. The helper runs only `/usr/bin/powermetrics` with a fixed command, and it stops when wattever quits.
+
+Without the helper, CPU comes from power histograms and DRAM from the SMC. GPU still has its own counter. Display, ANE, and the rest read zero. The menu says `make enable for exact chip power` until the helper is installed.

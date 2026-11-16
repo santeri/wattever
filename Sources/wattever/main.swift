@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import WatteverCore
 
@@ -20,6 +21,8 @@ app.delegate = appDelegate
 app.run()
 
 private func runOnce() throws {
+  let powerMetrics = PowerMetricsMonitor()
+  powerMetrics.ensureRunning()
   let sampler = try EnergySampler()
   if sampler.poll() != nil {
     fputs("wattever: unexpected reading on the baseline sample\n", stderr)
@@ -69,12 +72,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let display = NSMenuItem()
   private let other = NSMenuItem()
   private let session = NSMenuItem()
+  private let helperItem = NSMenuItem()
+  private let powerMetrics = PowerMetricsMonitor()
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     guard notAlreadyRunning else {
       NSApp.terminate(nil)
       return
     }
+    powerMetrics.ensureRunning()
 
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     statusItem = item
@@ -113,6 +119,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       menu.addItem(entry)
       if separatorAfter { menu.addItem(.separator()) }
     }
+    helperItem.title = "make enable for exact chip power"
+    helperItem.target = self
+    helperItem.action = #selector(ignore)
+    helperItem.isHidden = powerMetrics.isInstalled
+    menu.addItem(helperItem)
     let quit = NSMenuItem(title: "Quit wattever", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     quit.target = NSApp
     menu.addItem(quit)
@@ -138,6 +149,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @objc private func tick() {
+    powerMetrics.ensureRunning()
+    helperItem.isHidden = powerMetrics.isInstalled || PowerMetricsMonitor.binaryRunning(PowerMetricsMonitor.powermetricsPath)
     guard let reading = sampler?.poll() else { return }
     let power = PowerInput.now()
     let usage = power.usageWatts ?? reading.total
@@ -189,6 +202,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var notAlreadyRunning: Bool {
     let others = NSRunningApplication.runningApplications(withBundleIdentifier: "dev.santeri.wattever")
     return !others.contains { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+  }
+}
+
+/// Launches the setuid helper, which is root and therefore cannot be signaled
+/// from here. The helper watches this process and stops sampling when it exits.
+private final class PowerMetricsMonitor {
+  static let path = "/usr/local/libexec/wattever-powermetrics"
+  static let powermetricsPath = "/usr/bin/powermetrics"
+
+  private var process: Process?
+  private var startedAt: Date?
+  private var gaveUp = false
+
+  var isInstalled: Bool { Self.isInstalled(at: Self.path) }
+
+  func ensureRunning() {
+    if let process {
+      if process.isRunning { return }
+      process.waitUntilExit()
+      if let startedAt, Date().timeIntervalSince(startedAt) < 2 {
+        gaveUp = true
+      }
+      self.process = nil
+      self.startedAt = nil
+    }
+    guard isInstalled, !gaveUp else { return }
+    guard !Self.binaryRunning(Self.powermetricsPath) else { return }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: Self.path)
+    process.standardInput = FileHandle.nullDevice
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    do {
+      try process.run()
+    } catch {
+      gaveUp = true
+      return
+    }
+    self.process = process
+    self.startedAt = Date()
+  }
+
+  static func isInstalled(at path: String) -> Bool {
+    guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+      let owner = (attributes[.ownerAccountID] as? NSNumber)?.uint32Value,
+      let mode = (attributes[.posixPermissions] as? NSNumber)?.uint16Value
+    else { return false }
+    return HelperInstall.isSetuidRoot(owner: owner, permissions: mode)
+  }
+
+  static func binaryRunning(_ path: String) -> Bool {
+    // The buffer length is in bytes. The return value is a pid count.
+    let needed = proc_listallpids(nil, 0)
+    guard needed > 0 else { return false }
+    let count = Int(needed) + 32
+    var pids = [pid_t](repeating: 0, count: count)
+    let written = proc_listallpids(&pids, Int32(count * MemoryLayout<pid_t>.size))
+    guard written > 0 else { return false }
+    let available = min(count, Int(written))
+    for pid in pids.prefix(available) where pid > 0 {
+      var buffer = [CChar](repeating: 0, count: 4096)
+      guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { continue }
+      let bytes = buffer.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
+      if String(decoding: bytes, as: UTF8.self) == path { return true }
+    }
+    return false
   }
 }
 

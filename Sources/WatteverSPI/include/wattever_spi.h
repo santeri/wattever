@@ -27,3 +27,18 @@ CFDictionaryRef _Nullable wattever_copy_delta(CFDictionaryRef _Nonnull previous,
 
 // Invokes `visit` once per channel in an IOReport sample or delta.
 void wattever_visit_channels(CFDictionaryRef _Nonnull sample, WatteverVisit _Nonnull visit, void *_Nullable context);
+
+// Merged PMP channel dictionary (`PMP`, then `PMP0`..`PMP7`). Caller owns it.
+// NULL when this machine publishes none.
+CF_RETURNS_RETAINED
+CFDictionaryRef _Nullable wattever_copy_pmp_channels(void);
+
+typedef void (*WatteverStateVisit)(const char *_Nonnull name, const char *_Nonnull subgroup,
+                                   const char *_Nonnull state, uint64_t residency, void *_Nullable context);
+
+// Invokes `visit` once per state of each Energy-subgroup histogram in a sample or delta.
+void wattever_visit_states(CFDictionaryRef _Nonnull sample, WatteverStateVisit _Nonnull visit,
+                           void *_Nullable context);
+
+// DRAM rail watts from SMC `PZD1` and the following per-die keys. Negative when unread.
+double wattever_dram_watts(void);

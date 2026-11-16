@@ -247,6 +247,76 @@ final class EnergyTests: XCTestCase {
     XCTAssertNil(PowerInput.watts(in: idle))
   }
 
+  func testHistogramTreatsTheLowestBinAsOff() {
+    XCTAssertEqual(
+      histogramWatts([
+        PowerBin(label: "2W", residency: 100),
+        PowerBin(label: "4W", residency: 0),
+      ]) ?? -1,
+      0,
+      accuracy: 1e-12
+    )
+    XCTAssertEqual(
+      histogramWatts([
+        PowerBin(label: "   2W", residency: 50),
+        PowerBin(label: "4W", residency: 50),
+      ]) ?? -1,
+      2,
+      accuracy: 1e-12
+    )
+    XCTAssertEqual(
+      histogramWatts([
+        PowerBin(label: "0.250W", residency: 1),
+        PowerBin(label: "0.500W", residency: 1),
+        PowerBin(label: "0.750W", residency: 0),
+      ]) ?? -1,
+      0.25,
+      accuracy: 1e-12
+    )
+    XCTAssertNil(histogramWatts([PowerBin(label: "VMIN", residency: 10)]))
+    XCTAssertNil(histogramWatts([PowerBin(label: "2W", residency: 0)]))
+  }
+
+  func testPMPEnergyChannelsFillFrozenComponents() {
+    let channels = [
+      PMPChannel(
+        subgroup: "Energy", name: "EACC0",
+        bins: [PowerBin(label: "0.250W", residency: 0), PowerBin(label: "1.000W", residency: 10)]),
+      PMPChannel(
+        subgroup: "Energy", name: "PACC1 SRAM",
+        bins: [PowerBin(label: "0.250W", residency: 10), PowerBin(label: "1.000W", residency: 0)]),
+      PMPChannel(
+        subgroup: "Energy", name: "AGX",
+        bins: [PowerBin(label: "2W", residency: 1), PowerBin(label: "6W", residency: 1)]),
+      PMPChannel(
+        subgroup: "Energy", name: "AGX AFR",
+        bins: [PowerBin(label: "2W", residency: 0), PowerBin(label: "8W", residency: 10)]),
+      PMPChannel(
+        subgroup: "AF BW", name: "EACC0 RD",
+        bins: [PowerBin(label: "1GB/s", residency: 10)]),
+      PMPChannel(
+        subgroup: "Energy", name: "DIE_0_MACC0",
+        bins: [PowerBin(label: "2W", residency: 0), PowerBin(label: "4W", residency: 10)]),
+    ]
+    let clusters = clusterWatts(channels)
+    XCTAssertEqual(clusters.cpu ?? -1, 1 + 4, accuracy: 1e-12)
+    XCTAssertEqual(clusters.gpu ?? -1, 3, accuracy: 1e-12)
+
+    let frozen = EnergyReading(cpu: 0, gpu: 0, ane: 0, dram: 0, display: 0, other: 0, seconds: 1)
+    let filled = frozen.fillingFrozenComponents(cpu: clusters.cpu, gpu: clusters.gpu, dram: 1.8)
+    XCTAssertEqual(filled.cpu, 5, accuracy: 1e-12)
+    XCTAssertEqual(filled.gpu, 3, accuracy: 1e-12)
+    XCTAssertEqual(filled.dram, 1.8, accuracy: 1e-12)
+    XCTAssertEqual(filled.display, 0, accuracy: 1e-12)
+
+    let live = EnergyReading(cpu: 2, gpu: 0.4, ane: 0, dram: 0.3, display: 0.2, other: 0.1, seconds: 1)
+    let kept = live.fillingFrozenComponents(cpu: 9, gpu: 8, dram: 7)
+    XCTAssertEqual(kept.cpu, 2, accuracy: 1e-12)
+    XCTAssertEqual(kept.gpu, 0.4, accuracy: 1e-12)
+    XCTAssertEqual(kept.dram, 0.3, accuracy: 1e-12)
+    XCTAssertEqual(kept.other, 0.1, accuracy: 1e-12)
+  }
+
   func testSystemLoadIsWholeMachineUse() {
     let charging: [String: Any] = [
       "ExternalConnected": true,
@@ -283,5 +353,13 @@ final class EnergyTests: XCTestCase {
     let batteryNow = PowerInput.now(in: battery)
     XCTAssertEqual(batteryNow.usageWatts ?? -1, 8.4, accuracy: 1e-9)
     XCTAssertNil(batteryNow.inputWatts)
+  }
+
+  func testSetuidRootHelper() {
+    XCTAssertTrue(HelperInstall.isSetuidRoot(owner: 0, permissions: 0o4755))
+    XCTAssertTrue(HelperInstall.isSetuidRoot(owner: 0, permissions: 0o104755))
+    XCTAssertFalse(HelperInstall.isSetuidRoot(owner: 501, permissions: 0o4755))
+    XCTAssertFalse(HelperInstall.isSetuidRoot(owner: 0, permissions: 0o755))
+    XCTAssertFalse(HelperInstall.isSetuidRoot(owner: 0, permissions: 0o4777))
   }
 }

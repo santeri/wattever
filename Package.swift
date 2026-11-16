@@ -13,7 +13,8 @@ let package = Package(
       path: "Sources/WatteverSPI",
       publicHeadersPath: "include",
       linkerSettings: [
-        .linkedLibrary("IOReport")
+        .linkedLibrary("IOReport"),
+        .linkedFramework("IOKit"),
       ]
     ),
     .target(
